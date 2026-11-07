@@ -1,0 +1,60 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: postgres-ci-only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-timeout 3s --health-retries 30
+
+    env:
+      # Throwaway credentials for the ephemeral CI database only.
+      APP_MIGRATOR_PASSWORD: migrator-ci-only
+      APP_USER_PASSWORD: app-ci-only
+      TEST_APP_DATABASE_URL: postgresql://app_user:app-ci-only@127.0.0.1:5432/ztrag_test
+      TEST_MIGRATOR_DATABASE_URL: postgresql://app_migrator:migrator-ci-only@127.0.0.1:5432/ztrag_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type check
+        run: uv run mypy app
+
+      # Service containers cannot mount /docker-entrypoint-initdb.d, so run the
+      # same bootstrap script directly as the superuser.
+      - name: Bootstrap database roles
+        env:
+          PGHOST: 127.0.0.1
+          PGUSER: postgres
+          PGPASSWORD: postgres-ci-only
+        run: bash db/bootstrap/00_bootstrap.sh
+
+      - name: Test
+        run: uv run pytest -v
