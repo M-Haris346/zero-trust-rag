@@ -13,6 +13,8 @@ dependencies = [
     "structlog>=24.4",
     "python-dotenv>=1.0",
     "pyjwt>=2.9",
+    "anthropic==2.3.0",
+    "langgraph==1.2.17",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +33,11 @@ dev = [
 
 [tool.uv]
 package = false
+# Supply-chain hygiene: resolve only package versions published before this date
+# (applies to every direct and transitive dependency). Freshly published
+# releases get time for problems to surface before we adopt them. Bump the date
+# deliberately when updating dependencies, then re-run the full test suite.
+exclude-newer = "2026-10-26T00:00:00Z"
 
 [tool.ruff]
 line-length = 100
