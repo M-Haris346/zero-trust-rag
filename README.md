@@ -10,6 +10,50 @@ The claim this repo is built to prove with automated tests:
 > This holds even if the application code forgets a filter, and even if
 > retrieved content or the user's question contains a prompt-injection attack.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    client["Client"] -->|"Authorization: Bearer JWT"| verify
+
+    subgraph api["FastAPI (app/)"]
+        verify["get_principal<br/>verify HS256 JWT<br/>(app/auth.py)"] --> principal["Principal<br/>user_id, tenant_id"]
+        principal --> tx["tenant_transaction<br/>BEGIN, then set_config('app.user_id', ..., true)<br/>set_config('app.tenant_id', ..., true)<br/>(app/db.py)"]
+    end
+
+    subgraph db["PostgreSQL 16 + pgvector"]
+        rls["connect as app_user (NOBYPASSRLS)<br/>RLS policies, ENABLE + FORCE<br/>helpers owned by app_rls_helper<br/>(db/migrations/004_rls.sql)"]
+    end
+
+    tx -->|"SQL with no access filter"| rls
+```
+
+`POST /query` adds a small graph (`app/rag/graph.py`). Identity stays in code:
+the retriever is a closure over the `Principal` that takes only a query
+string, and the model receives only escaped question and chunk text.
+
+```mermaid
+flowchart LR
+    q["POST /query<br/>question, k"] --> retrieve["retrieve<br/>embed, then tenant_transaction<br/>+ RLS-scoped vector search"]
+    retrieve -->|"0 chunks"| refuse["refuse<br/>(no LLM call)"]
+    retrieve -->|"chunks S1..Sn"| grade["grade_relevance"]
+    grade -->|"none relevant,<br/>not yet rewritten"| rewrite["rewrite_query<br/>(at most once)"]
+    rewrite --> retrieve
+    grade -->|"none relevant,<br/>already rewritten"| refuse
+    grade -->|"relevant labels<br/>(filtered to S1..Sn)"| answer["answer_with_citations"]
+    answer --> validate["validate_citations<br/>(code: cited labels must be<br/>retrieved and graded relevant)"]
+    validate -->|"valid"| ok["200 answered<br/>citations = chunk ids"]
+    validate -->|"invalid / none / insufficient"| refused["200 refused<br/>unsupported_answer"]
+
+    llm[["Claude (LLM)<br/>UNTRUSTED, NO IDENTITY<br/>sees only escaped question + chunk text"]]
+    grade -.->|"prompt"| llm
+    rewrite -.->|"prompt"| llm
+    answer -.->|"prompt"| llm
+```
+
+Not drawn: if the model declines (even after the server-side fallback) the
+response is `refused / model_declined`; if it is unreachable, `503`.
+
 ## Status
 
 ### Implemented / Tested
@@ -108,6 +152,13 @@ uv run python scripts/migrate.py
 uv run python scripts/seed.py
 uv run pytest -v
 uv run python -m scripts.serve  # API on http://127.0.0.1:8000 (docs at /docs)
+```
+
+Terminal demo of the whole access-control story (for a screen recording):
+
+```bash
+APP_ENV=dev LLM_PROVIDER=fake EMBEDDER=fake uv run python -m scripts.serve   # terminal 1
+uv run python -m scripts.demo                                                # terminal 2
 ```
 
 `EMBEDDER=fastembed` (the default) needs `uv sync --extra embeddings`; without

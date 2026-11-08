@@ -117,6 +117,7 @@ uv run pytest                    # tests (need TEST_*_DATABASE_URL, i.e. ztrag_t
 RUN_LIVE_LLM=1 uv run pytest -m live -v   # opt-in real-Claude sampling; COSTS MONEY, never in CI
 uv run ruff check . && uv run ruff format --check . && uv run mypy app
 uv run python -m scripts.serve   # run the API on 127.0.0.1:8000 (selector loop on Windows)
+uv run python -m scripts.demo    # terminal demo vs a running dev API (APP_ENV=dev, fake LLM/embedder)
 docker compose down -v           # wipe the DB volume (re-runs bootstrap on next up)
 ```
 
