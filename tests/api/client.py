@@ -18,6 +18,7 @@ from app.auth import Principal, issue_token
 from app.config import Settings
 from app.main import create_app
 from app.rag.embedder import Embedder
+from app.rag.llm import LLM
 from tests.env import TEST_APP_DATABASE_URL
 
 # Test-only value; 64 chars so HS512 negative tests do not trip key-length warnings.
@@ -30,14 +31,19 @@ def make_settings(**overrides: Any) -> Settings:
         "app_database_url": TEST_APP_DATABASE_URL,
         "jwt_secret": JWT_SECRET,
         "embedder": "fake",
+        "llm_provider": "fake",
         "db_pool_max_size": 4,
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
 
 
-def build_app(settings: Settings | None = None, embedder: Embedder | None = None) -> FastAPI:
-    return create_app(settings or make_settings(), embedder)
+def build_app(
+    settings: Settings | None = None,
+    embedder: Embedder | None = None,
+    llm: LLM | None = None,
+) -> FastAPI:
+    return create_app(settings or make_settings(), embedder, llm)
 
 
 @asynccontextmanager

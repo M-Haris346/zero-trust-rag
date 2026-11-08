@@ -64,3 +64,10 @@ asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["."]
+# Live tests call the real Anthropic API and cost money: excluded by default.
+# Run on purpose with: RUN_LIVE_LLM=1 uv run pytest -m live -v
+addopts = ["-m", "not live"]
+markers = [
+    "live: calls the real Anthropic API (opt-in, costs money, never in CI)",
+    "identity_in_question: the test's user types an id into the question (identity sweep skips that block only)",
+]

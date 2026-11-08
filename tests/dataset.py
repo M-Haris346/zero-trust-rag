@@ -47,6 +47,26 @@ EMBEDDING_DIM = 384
 
 ALL_TABLES = ("tenants", "users", "memberships", "documents", "document_grants", "chunks")
 
+EMAILS = {
+    ALICE: "alice@acme.test",
+    BOB: "bob@acme.test",
+    CAROL: "carol@acme.test",
+    DAVE: "dave@globex.test",
+    EVE: "eve@nowhere.test",
+}
+TITLES = {
+    T1: "T1 tenant-wide",
+    R1: "R1 restricted",
+    R2: "R2 restricted",
+    G1: "G1 tenant-wide",
+}
+# Strings that must never be sent to an LLM by the application (ADR 0007).
+IDENTITY_STRINGS = (
+    [str(u) for u in (ACME, GLOBEX, ALICE, BOB, CAROL, DAVE, EVE)]
+    + list(EMAILS.values())
+    + list(TITLES.values())
+)
+
 READABLE: dict[tuple[UUID, UUID], set[UUID]] = {
     (ALICE, ACME): {T1, R1, R2},
     (BOB, ACME): {T1, R2},
@@ -79,11 +99,11 @@ def load(conn: psycopg.Connection) -> None:
         cur.executemany(
             "INSERT INTO users (id, email, display_name) VALUES (%s, %s, %s)",
             [
-                (ALICE, "alice@acme.test", "Alice"),
-                (BOB, "bob@acme.test", "Bob"),
-                (CAROL, "carol@acme.test", "Carol"),
-                (DAVE, "dave@globex.test", "Dave"),
-                (EVE, "eve@nowhere.test", "Eve"),
+                (ALICE, EMAILS[ALICE], "Alice"),
+                (BOB, EMAILS[BOB], "Bob"),
+                (CAROL, EMAILS[CAROL], "Carol"),
+                (DAVE, EMAILS[DAVE], "Dave"),
+                (EVE, EMAILS[EVE], "Eve"),
             ],
         )
         cur.executemany(
@@ -99,10 +119,10 @@ def load(conn: psycopg.Connection) -> None:
             "INSERT INTO documents (id, tenant_id, title, visibility, created_by)"
             " VALUES (%s, %s, %s, %s, %s)",
             [
-                (T1, ACME, "T1 tenant-wide", "tenant", BOB),
-                (R1, ACME, "R1 restricted", "restricted", ALICE),
-                (R2, ACME, "R2 restricted", "restricted", BOB),
-                (G1, GLOBEX, "G1 tenant-wide", "tenant", DAVE),
+                (T1, ACME, TITLES[T1], "tenant", BOB),
+                (R1, ACME, TITLES[R1], "restricted", ALICE),
+                (R2, ACME, TITLES[R2], "restricted", BOB),
+                (G1, GLOBEX, TITLES[G1], "tenant", DAVE),
             ],
         )
         cur.execute(

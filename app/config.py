@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     # and has no semantic meaning: for tests and offline demos only.
     embedder: Literal["fastembed", "fake"] = "fastembed"
 
+    # "anthropic" calls Claude through the official SDK; credentials are resolved
+    # by the SDK itself (ANTHROPIC_API_KEY, ...), never read by this app.
+    # "fake" is deterministic and offline: for tests and demos only.
+    llm_provider: Literal["anthropic", "fake"] = "anthropic"
+    llm_model: str = "claude-opus-5-5"
+    llm_timeout_seconds: float = Field(default=30.0, gt=0)
+    llm_max_retries: int = Field(default=2, ge=0)
+
     @field_validator("jwt_secret")
     @classmethod
     def _secret_long_enough(cls, value: SecretStr) -> SecretStr:

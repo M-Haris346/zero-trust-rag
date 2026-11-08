@@ -79,3 +79,44 @@ async def test_logs_contain_request_metadata(
             "request_id": entry["request_id"],
         }
     ]
+
+
+async def test_query_logs_outcome_but_no_question_answer_or_chunk_text(
+    client: httpx.AsyncClient, captured: list[dict[str, Any]]
+) -> None:
+    headers = bearer(BOB, ACME)
+    upload = await client.post(
+        "/documents",
+        headers=headers,
+        json={"title": "log check", "visibility": "tenant", "content": f"payroll {CANARY}"},
+    )
+    assert upload.status_code == 201
+    question = f"payroll {CANARY} details please"
+    response = await client.post("/query", headers=headers, json={"question": question, "k": 3})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "answered"  # control: the pipeline really ran
+
+    dump = repr(captured)
+    assert CANARY not in dump
+    assert "payroll" not in dump
+    assert "details please" not in dump
+    assert body["answer"] not in dump
+
+    [query_log] = [e for e in captured if e.get("event") == "query"]
+    assert query_log["status"] == "answered"
+    assert query_log["request_id"] == response.headers["x-request-id"]
+    assert {"retrieved", "relevant", "cited", "rewritten", "duration_ms"} <= set(query_log)
+    allowed = {
+        "event",
+        "log_level",
+        "request_id",
+        "status",
+        "refusal_reason",
+        "retrieved",
+        "relevant",
+        "cited",
+        "rewritten",
+        "duration_ms",
+    }
+    assert set(query_log) <= allowed, set(query_log) - allowed
