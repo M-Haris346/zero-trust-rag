@@ -16,3 +16,6 @@ htmlcov/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Editor settings (personal)
+.vscode/

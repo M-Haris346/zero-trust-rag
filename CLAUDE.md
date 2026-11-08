@@ -110,12 +110,12 @@ docs/                # architecture.md, threat-model.md, decisions/ (ADRs)
 ```
 cp .env.example .env             # then replace every change-me
 docker compose up -d db          # start Postgres; first start runs db/bootstrap/ (roles, DBs ztrag + ztrag_test)
-uv sync                          # install deps
+uv sync                          # install deps (add --extra embeddings for real fastembed)
 uv run python scripts/migrate.py # apply migrations to ztrag (tests migrate ztrag_test themselves)
 uv run python scripts/seed.py    # seed demo tenants/users/docs
 uv run pytest                    # tests (need TEST_*_DATABASE_URL, i.e. ztrag_test)
 uv run ruff check . && uv run ruff format --check . && uv run mypy app
-uv run uvicorn --factory app.main:create_app   # run the API
+uv run python -m scripts.serve   # run the API on 127.0.0.1:8000 (selector loop on Windows)
 docker compose down -v           # wipe the DB volume (re-runs bootstrap on next up)
 ```
 

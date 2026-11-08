@@ -25,17 +25,57 @@ The claim this repo is built to prove with automated tests:
   policy helpers). See [ADR 0002](docs/decisions/0002-database-roles.md).
 - **Transaction-local identity** via `set_config(..., true)` in
   `app/db.py:tenant_transaction`, tested to not leak across pooled connections.
-- **HNSW + RLS "fewer than k" problem**, reproduced and fixed with
-  `hnsw.iterative_scan = relaxed_order`. See [ADR 0004](docs/decisions/0004-hnsw-with-rls.md).
-- Migration runner with checksums, demo seed, `/healthz` and `/readyz`.
-- Tests in `tests/db/` (allowed + denied case for each property) and `tests/api/`.
+- **JWT auth** (HS256, demo only), pinned algorithm, required claims, 30 s
+  clock-skew leeway; dev-only token endpoint. See [ADR 0005](docs/decisions/0005-jwt-and-identity.md).
+- **Document API**: upload (chunk + embed, atomic), list, read, delete, grant
+  and revoke. Unreadable documents return 404, readable-but-not-allowed 403.
+- **Search API** (`POST /search`, query + k only): nearest chunks among those
+  the caller may read, with the HNSW + RLS "fewer than k" fix applied. See
+  [ADR 0004](docs/decisions/0004-hnsw-with-rls.md).
+- **Clean errors**: database errors map to 422 / 403 / 500 with generic
+  messages; raw Postgres text never reaches the client.
+- **Embedder interface** with a deterministic fake (tests, CI) and optional
+  local `fastembed`. See [ADR 0006](docs/decisions/0006-embedder-interface.md).
+- **Canary leak test** through the HTTP API (see below).
+- Tests in `tests/db/`, `tests/api/`, `tests/security/`, `tests/unit/`, with an
+  allowed and a denied case for each security property.
 
 ### Planned
-- JWT verification and a dev-only token endpoint.
-- Document ingestion (chunking, local `fastembed` embeddings) and query routes.
-- LangGraph answer flow with citations and refusal on insufficient context.
-- Prompt-injection and canary-leak tests; retrieval eval set.
+- LLM answer flow (LangGraph): answers with chunk citations, refusal on
+  insufficient context, retrieved text treated as untrusted data.
+- Prompt-injection tests against that flow.
+- Retrieval quality eval set with real embeddings.
 - Architecture and threat-model docs.
+- Production auth: RS256/JWKS verification from an external identity provider.
+
+### Known limitations
+- **No server-level request body size limit.** The 200,000-character content
+  limit is checked by Pydantic only after the whole body has been read, so a
+  very large request still costs memory before it is rejected.
+- **No rate limiting** on any route, including `/search` and uploads.
+- **Auth is demo-grade.** HS256 with a shared secret (see
+  [ADR 0005](docs/decisions/0005-jwt-and-identity.md)). There is no token
+  revocation list: a token stays valid until it expires. Removing a membership
+  or a grant does take effect on the next request, because RLS re-checks it.
+- **Retrieval quality is not evaluated.** Tests and CI use `FakeEmbedder`,
+  which has no semantic meaning. The test that runs the real `fastembed` model
+  is skipped unless the optional extra is installed.
+- **Plain-text upload only.** No PDF or other file formats.
+- **Single instance.** Run and tested as one local process; no multi-instance
+  deployment setup.
+- **No LLM answers yet.** `/search` returns chunks; there is no generated
+  answer, so prompt-injection handling is not implemented or tested yet.
+
+## What the canary test proves (and what it does not)
+`tests/security/test_canary_leak.py` makes a unique string the *only* content
+of a restricted document, then has unauthorized users (no grant, other tenant,
+forged tenant claim, no membership) search for that exact string with the
+maximum `k`. The string never appears in any response, while authorized users
+get it as the top hit.
+
+This proves **access control** end to end through HTTP. It does **not** prove
+retrieval quality: the test embedder has no semantic meaning. Quality needs
+real embeddings and an eval set, which is planned.
 
 ## Quickstart
 
@@ -44,16 +84,53 @@ Requires Docker and [uv](https://docs.astral.sh/uv/).
 ```bash
 cp .env.example .env            # replace every change-me
 docker compose up -d db         # first start creates roles + databases
-uv sync
+uv sync                         # add --extra embeddings for real local embeddings
 uv run python scripts/migrate.py
 uv run python scripts/seed.py
 uv run pytest -v
+uv run python -m scripts.serve  # API on http://127.0.0.1:8000 (docs at /docs)
 ```
 
-See RLS in action as the API role:
+`EMBEDDER=fastembed` (the default) needs `uv sync --extra embeddings`; without
+it `serve.py` exits with that instruction. `EMBEDDER=fake` runs without it, but
+search results are then not meaningful.
+
+Try it (dev only, `APP_ENV=dev`):
+
+```bash
+TOKEN=$(curl -s -X POST http://127.0.0.1:8000/auth/dev-token \
+  -H 'content-type: application/json' \
+  -d '{"user_id":"00000000-0000-4000-8000-000000000002","tenant_id":"00000000-0000-4000-8000-0000000000a1"}' \
+  | python -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')   # bob @ Acme
+
+curl -s http://127.0.0.1:8000/documents -H "Authorization: Bearer $TOKEN"
+curl -s -X POST http://127.0.0.1:8000/search -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{"query":"handbook","k":5}'
+```
+
+## API
+
+| Method | Path | Auth | Result |
+|---|---|---|---|
+| GET | `/healthz`, `/readyz` | none | liveness / database reachable |
+| POST | `/auth/dev-token` | none, **dev only** | `{user_id, tenant_id}` → token if that membership exists, else 403 |
+| POST | `/documents` | bearer | `{title, visibility, content}` → 201 document |
+| GET | `/documents` | bearer | `{"documents": [document, ...]}` (readable only) |
+| GET | `/documents/{id}` | bearer | document, or 404 if not readable |
+| DELETE | `/documents/{id}` | bearer | 204 (creator/admin), 403 (readable, not allowed), 404 |
+| POST / DELETE | `/documents/{id}/grants/{user_id}` | bearer | 204 (idempotent), 403, 404, 422 if not a tenant member |
+| POST | `/search` | bearer | `{query, k≤20}` → `{"results": [{chunk_id, document_id, chunk_index, content, distance}]}` |
+
+A **document** is
+`{id, title, visibility, created_by, created_at, chunk_count}`. It has no
+`tenant_id` (that comes from the token) and no content (content is only
+returned by `/search`). Request bodies reject unknown fields, so a client
+cannot send `tenant_id`, `user_id` or `created_by`.
+
+## See RLS in action as the API role
 
 ```sql
--- psql "postgresql://app_user:<password>@localhost:5432/ztrag"
+-- psql "postgresql://app_user:<password>@127.0.0.1:5432/ztrag"
 SELECT count(*) FROM documents;               -- 0: no identity, no rows
 
 BEGIN;
@@ -70,11 +147,13 @@ only. On Windows, `localhost` tries IPv6 `::1` first and that attempt is not
 reported as refused, so the connection waits until `connect_timeout` (set to 5 s
 in code) before falling back.
 
-**Windows:** psycopg's async mode needs the selector event loop. The tests set
-it; when running uvicorn on Windows this is handled in the API phase.
+**Windows:** psycopg's async mode cannot use the default Proactor event loop.
+The tests and `scripts/serve.py` run on a selector event loop instead.
 
 ## Design decisions
 - [0001 RLS is the enforcement layer](docs/decisions/0001-rls-as-enforcement-layer.md)
 - [0002 Three database roles](docs/decisions/0002-database-roles.md)
 - [0003 Transaction-local request identity](docs/decisions/0003-transaction-local-context.md)
 - [0004 HNSW index scans and RLS](docs/decisions/0004-hnsw-with-rls.md)
+- [0005 JWT identity (HS256 for the demo)](docs/decisions/0005-jwt-and-identity.md)
+- [0006 Embedder interface](docs/decisions/0006-embedder-interface.md)
