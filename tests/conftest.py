@@ -18,6 +18,7 @@ import pytest
 
 from scripts.migrate import apply_migrations
 from tests import dataset
+from tests.corpus import load_skewed_corpus
 from tests.env import TEST_APP_DATABASE_URL, TEST_MIGRATOR_DATABASE_URL
 
 # psycopg's async mode cannot run on Windows' default Proactor event loop.
@@ -43,3 +44,9 @@ def app_conn(migrator: psycopg.Connection) -> Iterator[psycopg.Connection]:
     """app_user connection with no request context set."""
     with psycopg.connect(TEST_APP_DATABASE_URL, autocommit=True, connect_timeout=5) as conn:
         yield conn
+
+
+@pytest.fixture
+def skewed_corpus(migrator: psycopg.Connection) -> None:
+    """Adds the HNSW + RLS skewed corpus (tests/corpus.py) to the dataset."""
+    load_skewed_corpus(migrator)

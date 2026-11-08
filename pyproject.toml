@@ -12,7 +12,13 @@ dependencies = [
     "pydantic-settings>=2.6",
     "structlog>=24.4",
     "python-dotenv>=1.0",
+    "pyjwt>=2.9",
 ]
+
+[project.optional-dependencies]
+# Real local embeddings (pulls in onnxruntime). Tests and CI use FakeEmbedder
+# and do not need this. Install with: uv sync --extra embeddings
+embeddings = ["fastembed>=0.4"]
 
 [dependency-groups]
 dev = [

@@ -13,20 +13,15 @@ import psycopg
 import pytest
 
 from app.auth import Principal
-from app.config import Settings
 from app.db import Pool, create_pool, tenant_transaction
+from tests.api.client import make_settings
 from tests.dataset import ACME, BOB, R2, T1
-from tests.env import TEST_APP_DATABASE_URL
 
 
 @pytest.fixture
 async def pool(migrator: psycopg.Connection) -> AsyncIterator[Pool]:
-    settings = Settings(
-        app_database_url=TEST_APP_DATABASE_URL,  # type: ignore[arg-type]
-        db_pool_min_size=1,
-        db_pool_max_size=1,
-    )
-    p = create_pool(settings)
+    # make_settings: explicit values, no .env file (see test_settings_hermetic.py).
+    p = create_pool(make_settings(db_pool_min_size=1, db_pool_max_size=1))
     await p.open(wait=True)
     try:
         yield p
