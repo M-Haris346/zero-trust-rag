@@ -113,7 +113,8 @@ docker compose up -d db          # start Postgres; first start runs db/bootstrap
 uv sync                          # install deps (add --extra embeddings for real fastembed)
 uv run python scripts/migrate.py # apply migrations to ztrag (tests migrate ztrag_test themselves)
 uv run python scripts/seed.py    # seed demo tenants/users/docs
-uv run pytest                    # tests (need TEST_*_DATABASE_URL, i.e. ztrag_test)
+uv run pytest                    # tests (need TEST_*_DATABASE_URL, i.e. ztrag_test); live LLM tests excluded
+RUN_LIVE_LLM=1 uv run pytest -m live -v   # opt-in real-Claude sampling; COSTS MONEY, never in CI
 uv run ruff check . && uv run ruff format --check . && uv run mypy app
 uv run python -m scripts.serve   # run the API on 127.0.0.1:8000 (selector loop on Windows)
 docker compose down -v           # wipe the DB volume (re-runs bootstrap on next up)

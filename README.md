@@ -37,15 +37,22 @@ The claim this repo is built to prove with automated tests:
 - **Embedder interface** with a deterministic fake (tests, CI) and optional
   local `fastembed`. See [ADR 0006](docs/decisions/0006-embedder-interface.md).
 - **Canary leak test** through the HTTP API (see below).
+- **Answer API** (`POST /query`, question + k only): a small LangGraph flow
+  (retrieve → grade → answer, at most one query rewrite) on `claude-opus-5-5`.
+  Answers cite chunk ids; anything uncited or unverifiable is refused. See
+  [ADR 0007](docs/decisions/0007-llm-boundary.md).
+- **Prompt-injection containment**, tested deterministically with a scripted
+  `FakeLLM`: the model never receives identity, unreadable text never reaches
+  it, injected text is escaped and delimited, and a hijacked model cannot cite
+  chunks that were not retrieved. A suite-wide check scans every LLM request
+  for user/tenant ids, emails and titles.
+- [Threat model](docs/threat-model.md) with each threat mapped to its test.
 - Tests in `tests/db/`, `tests/api/`, `tests/security/`, `tests/unit/`, with an
   allowed and a denied case for each security property.
 
 ### Planned
-- LLM answer flow (LangGraph): answers with chunk citations, refusal on
-  insufficient context, retrieved text treated as untrusted data.
-- Prompt-injection tests against that flow.
-- Retrieval quality eval set with real embeddings.
-- Architecture and threat-model docs.
+- Retrieval and answer quality eval set with real embeddings and the real model.
+- Architecture doc.
 - Production auth: RS256/JWKS verification from an external identity provider.
 
 ### Known limitations
@@ -63,8 +70,20 @@ The claim this repo is built to prove with automated tests:
 - **Plain-text upload only.** No PDF or other file formats.
 - **Single instance.** Run and tested as one local process; no multi-instance
   deployment setup.
-- **No LLM answers yet.** `/search` returns chunks; there is no generated
-  answer, so prompt-injection handling is not implemented or tested yet.
+- **Answer wording is not verified.** Citations are checked; the sentences are
+  not. A hijacked model could still write a misleading answer about chunks the
+  caller may read.
+- **Real-model behaviour is only sampled.** `tests/live/` runs a few adversarial
+  cases against Claude; it is opt-in (`RUN_LIVE_LLM=1 uv run pytest -m live`),
+  costs money, and is not part of CI. The deterministic tests are the evidence.
+- **No streaming and no conversation history** for `/query`.
+- **The Anthropic request shape is not yet verified against the live API.** The
+  combination of server-side `fallbacks`, structured output and `effort` is
+  checked against the installed SDK source and by a mocked-HTTP test of the
+  exact request body, but no real request has been sent until the live check
+  runs.
+- **The answer graph is compiled on every request.** Small per-request
+  overhead; not optimized yet.
 
 ## What the canary test proves (and what it does not)
 `tests/security/test_canary_leak.py` makes a unique string the *only* content
@@ -95,6 +114,10 @@ uv run python -m scripts.serve  # API on http://127.0.0.1:8000 (docs at /docs)
 it `serve.py` exits with that instruction. `EMBEDDER=fake` runs without it, but
 search results are then not meaningful.
 
+`LLM_PROVIDER=anthropic` (the default) calls Claude; the SDK finds credentials
+itself (`ANTHROPIC_API_KEY`, or `ant auth login`). `LLM_PROVIDER=fake` runs
+offline with placeholder answers.
+
 Try it (dev only, `APP_ENV=dev`):
 
 ```bash
@@ -120,6 +143,7 @@ curl -s -X POST http://127.0.0.1:8000/search -H "Authorization: Bearer $TOKEN" \
 | DELETE | `/documents/{id}` | bearer | 204 (creator/admin), 403 (readable, not allowed), 404 |
 | POST / DELETE | `/documents/{id}/grants/{user_id}` | bearer | 204 (idempotent), 403, 404, 422 if not a tenant member |
 | POST | `/search` | bearer | `{query, k≤20}` → `{"results": [{chunk_id, document_id, chunk_index, content, distance}]}` |
+| POST | `/query` | bearer | `{question, k≤8}` → `{status: answered\|refused, answer, refusal_reason, citations: [{chunk_id, document_id, chunk_index}]}` |
 
 A **document** is
 `{id, title, visibility, created_by, created_at, chunk_count}`. It has no
@@ -157,3 +181,4 @@ The tests and `scripts/serve.py` run on a selector event loop instead.
 - [0004 HNSW index scans and RLS](docs/decisions/0004-hnsw-with-rls.md)
 - [0005 JWT identity (HS256 for the demo)](docs/decisions/0005-jwt-and-identity.md)
 - [0006 Embedder interface](docs/decisions/0006-embedder-interface.md)
+- [0007 The LLM boundary](docs/decisions/0007-llm-boundary.md)
