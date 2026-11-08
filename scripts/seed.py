@@ -23,8 +23,12 @@ GLOBEX = UUID("00000000-0000-4000-8000-0000000000b1")
 
 ALICE = UUID("00000000-0000-4000-8000-000000000001")  # Acme admin
 BOB = UUID("00000000-0000-4000-8000-000000000002")  # Acme member
-CAROL = UUID("00000000-0000-4000-8000-000000000003")  # Acme member, granted Acme handbook
+CAROL = UUID("00000000-0000-4000-8000-000000000003")  # Acme member, granted salary bands
 DAVE = UUID("00000000-0000-4000-8000-000000000004")  # Globex member
+
+HANDBOOK = UUID("00000000-0000-4000-8000-00000000d001")  # Acme, tenant-wide, by Bob
+SALARY_BANDS = UUID("00000000-0000-4000-8000-00000000d002")  # Acme, restricted, by Alice
+GLOBEX_ONBOARDING = UUID("00000000-0000-4000-8000-00000000d003")  # Globex, tenant-wide
 
 TENANTS = [(ACME, "Acme Corp"), (GLOBEX, "Globex Inc")]
 USERS = [
@@ -41,19 +45,13 @@ MEMBERSHIPS = [
 ]
 DOCUMENTS = [
     # id, tenant, title, visibility, created_by
-    (UUID("00000000-0000-4000-8000-00000000d001"), ACME, "Acme public handbook", "tenant", BOB),
-    (
-        UUID("00000000-0000-4000-8000-00000000d002"),
-        ACME,
-        "Acme salary bands (restricted)",
-        "restricted",
-        ALICE,
-    ),
-    (UUID("00000000-0000-4000-8000-00000000d003"), GLOBEX, "Globex onboarding", "tenant", DAVE),
+    (HANDBOOK, ACME, "Acme public handbook", "tenant", BOB),
+    (SALARY_BANDS, ACME, "Acme salary bands (restricted)", "restricted", ALICE),
+    (GLOBEX_ONBOARDING, GLOBEX, "Globex onboarding", "tenant", DAVE),
 ]
 GRANTS = [
     # document, tenant, user
-    (UUID("00000000-0000-4000-8000-00000000d002"), ACME, CAROL),
+    (SALARY_BANDS, ACME, CAROL),
 ]
 
 
